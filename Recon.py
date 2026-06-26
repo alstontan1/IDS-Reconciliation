@@ -1,5 +1,3 @@
-#cd 'C:\Users\USER\OneDrive\Desktop\Work\Python project'
-#.\.venv\Scripts\activate
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -424,7 +422,3 @@ Replace the attributes with attributes that exist in 'ppobprod' for each table.
     file.writerow([f'ID dari tabel \'transaction_list\' yang tidak ada pasangan:']) 
     file.writerow(unused_id['CMP_tb'])
     filepath.close()
-
-
-#email
-#github
