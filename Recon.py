@@ -1,3 +1,5 @@
+#cd 'C:\Users\USER\OneDrive\Desktop\Work\Python project'
+#.\.venv\Scripts\activate
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -6,11 +8,17 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import  WebDriverWait
 from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.common.exceptions import ElementNotInteractableException
+from selenium.common.exceptions import TimeoutException
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 import csv
-from datetime import date, timedelta, datetime
+from datetime import date, datetime, timedelta
 from dotenv import find_dotenv, load_dotenv
 import os
 import pymysql
+import smtplib
 import sys
 import time
 
@@ -140,38 +148,39 @@ def check_attributes(db_name,tb_name,att_list,cursor_name):
     check_attributes = set(att_list)
     return sorted(check_attributes-existing_attributes)
 
-def solve_captcha(driver_name,wait_name):
-    while 1: #wait until offset loads
-        captcha_px_offset = driver_name.find_element(By.XPATH,'//*[@id="captcha-target"]').get_attribute('style').split(':')[-1].replace('px;','').replace(' ','')
-        try:
-            captcha_px_offset = int(captcha_px_offset)
-            captcha_slider = driver_name.find_element(By.XPATH,'//*[@id="captcha-range"]')
-            scale_factor = 365*2/int(captcha_slider.get_attribute('max'))
-            wait_name.until(EC.element_to_be_clickable((By.XPATH,'//*[@id="captcha-range"]')))
-            ActionChains(driver_name).drag_and_drop_by_offset(captcha_slider, scale_factor*int(captcha_px_offset)-365, 0).perform() #tested position
-            break
-        except (ValueError, ElementNotInteractableException): #error: offset = 'none'
-            pass
-    #debug
-    #print(captcha_px_offset)
-    #print(type(captcha_px_offset))
-    #print(scale_factor)
+def solve_captcha(driver_name,wait_name,retry_scale_factor):
+    captcha_px_offset = driver_name.find_element(By.XPATH,'//*[@id="captcha-target"]').get_attribute('style').split(':')[-1].replace('px;','').replace(' ','')
+    if retry_scale_factor:
+        captcha_slider = driver_name.find_element(By.XPATH,'//*[@id="captcha-range"]')
+        ActionChains(driver_name).drag_and_drop_by_offset(captcha_slider, retry_scale_factor*int(captcha_px_offset)-365, 0).perform() #tested position
+        return retry_scale_factor
+    try:
+        captcha_px_offset = int(captcha_px_offset)
+        captcha_slider = driver_name.find_element(By.XPATH,'//*[@id="captcha-range"]')
+        scale_factor = 365*2/int(captcha_slider.get_attribute('max'))
+        wait_name.until(EC.element_to_be_clickable((By.XPATH,'//*[@id="captcha-range"]')))
+        ActionChains(driver_name).drag_and_drop_by_offset(captcha_slider, scale_factor*int(captcha_px_offset)-365, 0).perform() #tested position
+        if not EC.element_to_be_clickable((By.XPATH,'//*[@id="captcha-range"]')):
+            return 0
+        else:
+            return scale_factor
+    except (ValueError, ElementNotInteractableException): #error: offset = 'none'
+        return 0
 
 def login(email,password,driver_name,wait_name):
     wait_name.until(EC.presence_of_element_located((By.XPATH,'//*[@id="email"]')))
     driver_name.find_element(By.XPATH,'//*[@id="email"]').send_keys(email + Keys.TAB + password) #credentials
     driver_name.find_element(By.XPATH,'/html/body/div/div[1]/div[2]/div/div[1]/form/div[3]/div/div/label').click()
+    retry_scale_factor = 0
     while 1:
         try:
-            solve_captcha(driver_name,wait_name)
+            retry_scale_factor = solve_captcha(driver_name,wait_name,retry_scale_factor)
             wait_name.until(EC.element_to_be_clickable((By.XPATH,'/html/body/div/div/div[2]/div/div[1]/form/div[4]/div/button')))
             driver_name.find_element(By.XPATH, '/html/body/div/div/div[2]/div/div[1]/form/div[4]/div/button').click()
             break
         except ElementClickInterceptedException:
             pass
         
-
-
 def transaction_dl(date_obj,driver_name,wait_name):
     wait_name.until(EC.presence_of_element_located((By.XPATH,'//*[@id="sidebar"]/ul/li[3]/a')))
     driver_name.find_element(By.XPATH,'//*[@id="sidebar"]/ul/li[3]/a').click() #click transactions
@@ -204,6 +213,28 @@ def file_dl_wait(fpath,temp='.crdownload',refresh=1,timeout=300):
             time.sleep(refresh)
     return False
 
+def send_email(attachment_name, attachment_fpath, sender_email, sender_password, recipient_email, subject, body):
+    with open(attachment_fpath, 'rb') as attachment:
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(attachment.read())
+    encoders.encode_base64(part)
+    part.add_header(
+        'Content-Disposition',
+        f'attachment; filename="{attachment_name}"',
+    )
+
+    html_part = MIMEText(body)
+    message = MIMEMultipart()
+    message['Subject'] = subject
+    message['From'] = sender_email
+    message['To'] = recipient_email
+    message.attach(html_part)
+    message.attach(part)
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, recipient_email, message.as_string())
+
 
 
 
@@ -226,7 +257,9 @@ Import the correct .env file into the directory.
     #initialization
     date_h1 = str(date.today() - timedelta(1))
     #date_h1 = string, format: 'yyyy-mm-dd'
-    CMP_fpath = f'C:\\Users\\USER\\Downloads\\transaction-list-{date_h1.replace('-','_')} - {date_h1.replace('-','_')}.csv'
+    CMP_dir = f'C:\\Users\\USER\\Downloads'
+    CMP_fpath = f'{CMP_dir}\\transaction-list-{date_h1.replace('-','_')} - {date_h1.replace('-','_')}.csv'
+    recon_file_name = f'Rekonsiliasi_Transaksi_{date_h1.replace('-','_')}.csv'
 
     try:
         connection = pymysql.connect( 
@@ -248,6 +281,7 @@ Activate the database server.
     cursor.execute(f"USE ppobprod")    
 
 
+
     #RPA
     login('impiandib@gmail.com', os.getenv('via_password'), driver, wait)
     transaction_dl(datetime.strptime(date_h1, r"%Y-%m-%d").date(),driver,wait)
@@ -263,7 +297,8 @@ Activate the database server.
         
     driver.close()
 
-    
+
+
     #cek adanya tabel 'tb_r_logpaydata'
     if not check_tb_exist('ppobprod', 'tb_r_logpaydata', cursor):
         err_fix_msg(err = f"""
@@ -394,12 +429,16 @@ Replace the attributes with attributes that exist in 'ppobprod' for each table.
         if not inconsistency_index == [0 for i in range(attribute_number)]:
             inconsistent_rows[row['Reff ID']] = [f'{attributes_IDS[i]} - {attributes_CMP[i]} : {row[attributes_IDS[i]]} - {row[attributes_CMP[i]]}' if inconsistency_index[i] == 1 else f'{attributes_IDS[i]} - {attributes_CMP[i]} : Valid' for i in range(1,attribute_number)]
 
-    #create file
+
+
+    #send and create file
     try:
-        filepath = open(f'Rekonsiliasi_Transaksi_{date_h1.replace('-','_')}.csv', 'w', newline = '', encoding = 'utf-8')
+        os.makedirs(CMP_dir, exist_ok = True)
+        filename = os.path.join(CMP_dir, recon_file_name)
+        filepath = open(filename, 'w', newline = '', encoding = 'utf-8')
     except PermissionError:
         err_fix_msg(err = f"""
-    File name 'Rekonsiliasi_Transaksi_{date_h1.replace('-','_')}.csv' already exists.
+    File name '{recon_file_name}' already exists.
     """, fix = f"""
     Delete or move the existing file as to not overwrite data.
     """
@@ -422,3 +461,5 @@ Replace the attributes with attributes that exist in 'ppobprod' for each table.
     file.writerow([f'ID dari tabel \'transaction_list\' yang tidak ada pasangan:']) 
     file.writerow(unused_id['CMP_tb'])
     filepath.close()
+
+    send_email(recon_file_name,f'{CMP_dir}\\{recon_file_name}',os.getenv('sender_email'),os.getenv('sender_app_password'),os.getenv('recipient_email'),f'Rekonsiliasi tanggal {date_h1}','')
