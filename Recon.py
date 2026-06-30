@@ -1,5 +1,3 @@
-#cd 'C:\Users\USER\OneDrive\Desktop\Work\Python project'
-#.\.venv\Scripts\activate
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -213,7 +211,7 @@ def file_dl_wait(fpath,temp='.crdownload',refresh=1,timeout=300):
             time.sleep(refresh)
     return False
 
-def send_email(attachment_name, attachment_fpath, sender_email, sender_password, recipient_email, subject, body):
+def send_email(attachment_name, attachment_fpath, sender_email, sender_password, recipient_emails, subject, body):
     with open(attachment_fpath, 'rb') as attachment:
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(attachment.read())
@@ -227,13 +225,13 @@ def send_email(attachment_name, attachment_fpath, sender_email, sender_password,
     message = MIMEMultipart()
     message['Subject'] = subject
     message['From'] = sender_email
-    message['To'] = recipient_email
+    message['To'] = ', '.join(recipient_emails)
     message.attach(html_part)
     message.attach(part)
 
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
         server.login(sender_email, sender_password)
-        server.sendmail(sender_email, recipient_email, message.as_string())
+        server.sendmail(sender_email, recipient_emails, message.as_string())
 
 
 
@@ -257,6 +255,7 @@ Import the correct .env file into the directory.
     #initialization
     date_h1 = str(date.today() - timedelta(1))
     #date_h1 = string, format: 'yyyy-mm-dd'
+    db_name = os.getenv('db_name')
     CMP_dir = f'C:\\Users\\USER\\Downloads'
     CMP_fpath = f'{CMP_dir}\\transaction-list-{date_h1.replace('-','_')} - {date_h1.replace('-','_')}.csv'
     recon_file_name = f'Rekonsiliasi_Transaksi_{date_h1.replace('-','_')}.csv'
@@ -266,7 +265,7 @@ Import the correct .env file into the directory.
         host = 'localhost',
         user = os.getenv('db_user'),
         password = os.getenv('db_password'),
-        database = 'ppobprod',
+        database = db_name,
         charset = 'utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
         )
@@ -278,7 +277,7 @@ Connection not found.
 Activate the database server.
 """)
         sys.exit()
-    cursor.execute(f"USE ppobprod")    
+    cursor.execute(f"USE {db_name}")    
 
 
 
@@ -300,17 +299,17 @@ Activate the database server.
 
 
     #cek adanya tabel 'tb_r_logpaydata'
-    if not check_tb_exist('ppobprod', 'tb_r_logpaydata', cursor):
+    if not check_tb_exist(db_name, 'tb_r_logpaydata', cursor):
         err_fix_msg(err = f"""
 Table 'tb_r_logpaydata' not found.
 """, fix = f"""
-Input an existing table name from database 'ppobprod'
+Input an existing table name from database '{db_name}'
 for 'IDS_tb'
 """)
         sys.exit()
 
-    ensure_tb_exist('ppobprod','transaction_list',cursor)
-    match import_csv('ppobprod','transaction_list',cursor,CMP_fpath,connection):
+    ensure_tb_exist(db_name,'transaction_list',cursor)
+    match import_csv(db_name,'transaction_list',cursor,CMP_fpath,connection):
         case 0:
             err_fix_msg(err = f"""
         File from path {CMP_fpath}
@@ -334,7 +333,7 @@ with more / less attributes.
 """)
             sys.exit()
 
-    data_to_check = check_pairs('ppobprod','tb_r_logpaydata',['supplierref', 'transactiondate', 'nominal', 'customerid'],'transaction_list',['Reff ID', 'Date', 'Sales Price', 'Customer Number'],cursor)
+    data_to_check = check_pairs(db_name,'tb_r_logpaydata',['supplierref', 'transactiondate', 'nominal', 'customerid'],'transaction_list',['Reff ID', 'Date', 'Sales Price', 'Customer Number'],cursor)
 
     if data_to_check == False: #error checking
         false_attributes = {
@@ -342,13 +341,13 @@ with more / less attributes.
             'transaction_list' : []
         }
         for i,j in [('tb_r_logpaydata',['supplierref', 'transactiondate', 'nominal', 'customerid']), ('transaction_list',['Reff ID', 'Date', 'Sales Price', 'Customer Number'])]:
-            false_attributes[i].extend(check_attributes('ppobprod',i,j,cursor))
+            false_attributes[i].extend(check_attributes(db_name,i,j,cursor))
         err_fix_msg(err = f"""
 The attributes {false_attributes['tb_r_logpaydata']}
 and the attributes {false_attributes['transaction_list']}
 do not exist.
 """, fix = f"""
-Replace the attributes with attributes that exist in 'ppobprod' for each table.
+Replace the attributes with attributes that exist in '{db_name}' for each table.
 """)
         sys.exit()
 
@@ -462,4 +461,4 @@ Replace the attributes with attributes that exist in 'ppobprod' for each table.
     file.writerow(unused_id['CMP_tb'])
     filepath.close()
 
-    send_email(recon_file_name,f'{CMP_dir}\\{recon_file_name}',os.getenv('sender_email'),os.getenv('sender_app_password'),os.getenv('recipient_email'),f'Rekonsiliasi tanggal {date_h1}','')
+    send_email(recon_file_name,f'{CMP_dir}\\{recon_file_name}',os.getenv('sender_email'),os.getenv('sender_app_password'),[os.getenv('recipient_email')],f'Rekonsiliasi tanggal {date_h1}','')
