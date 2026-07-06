@@ -6,7 +6,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import  WebDriverWait
 from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.common.exceptions import ElementNotInteractableException
-from selenium.common.exceptions import TimeoutException
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -78,7 +77,7 @@ class viatelecom:
         driver_name.find_element(By.XPATH,'//*[@id="btn-filter"]').click() #click search
         driver_name.find_element(By.XPATH,'//*[@id="btn-export"]').click() #click import
 
-    def rpa_quit(self, download_directory, temporary_extension='.crdownload', timeout=300):
+    def rpa_quit(self, driver_name, download_directory, temporary_extension='.crdownload', timeout=300):
         start = time.time()
         while time.time() - start < timeout:
             if os.path.isfile(os.path.join(download_directory, self.download_file_name + temporary_extension)):
@@ -87,7 +86,7 @@ class viatelecom:
                 break
             else:
                 time.sleep(1)
-        driver.quit()
+        driver_name.quit()
 
     def format_data(self, file_path):
         return pd.read_csv(file_path)
@@ -119,8 +118,8 @@ class reconciliation():
         SELECT *
         FROM {tb_name}
         """
-        cursor.execute(sql)
-        return pd.DataFrame([i for i in cursor.fetchall()])
+        cursor_name.execute(sql)
+        return pd.DataFrame([i for i in cursor_name.fetchall()])
     
     def compare_data(self, data1, data2, data_type):
         match data_type.split('(')[0].lower():
@@ -254,7 +253,7 @@ if __name__ == '__main__':
     
     #RPA
     web.download_transactions(email=os.getenv('web_email'), password=os.getenv('web_password'), driver_name=driver, wait_name=wait)
-    web.rpa_quit(download_directory=open_dir,temporary_extension='.crdownload',timeout=300)
+    web.rpa_quit(driver_name=driver,download_directory=open_dir,temporary_extension='.crdownload',timeout=300)
     biller_table = web.format_data(file_path=os.path.join(open_dir, web.download_file_name))
 
     #Reconciliation
